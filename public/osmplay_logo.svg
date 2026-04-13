@@ -1,0 +1,12 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="grad" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#FFD700" />
+      <stop offset="100%" stop-color="#FF6A00" />
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="100" r="90" fill="url(#grad)" />
+  <circle cx="100" cy="100" r="80" fill="#0a1115" />
+  <text x="100" y="100" text-anchor="middle" dominant-baseline="central" fill="#FFD700" font-family="Arial, sans-serif" font-size="28" font-weight="800">OSM</text>
+  <text x="100" y="130" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-family="Arial, sans-serif" font-size="18" font-weight="700">PLAY</text>
+</svg>

@@ -1,0 +1,23 @@
+{
+  "short_name": "Ludo",
+  "name": "Ludo Pro Multiplayer Game",
+  "description": "Play real-time multiplayer Ludo game online with friends",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#8B0000",
+  "background_color": "#ffffff"
+}
