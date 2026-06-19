@@ -1,6 +1,6 @@
 import React from 'react';
 import { Trophy, Settings, Coins, ArrowLeft, CheckCircle, ShieldAlert, X } from 'lucide-react';
-import { User, LudoGame } from '../../src/types.js';
+import type { User, LudoGame } from '../../src/types';
 import Board from '../../game/Board.jsx';
 import LudoDice3D from '../../game/Dice.jsx';
 
@@ -85,6 +85,9 @@ export default function Ludo({
       </div>
     );
   }
+
+  // From here on `activeLudo` is guaranteed by the early return above.
+  const game = activeLudo as LudoGame;
 
   return (
     <div className="absolute inset-0 bg-[#3a010d] text-neutral-100 flex flex-col z-40 leading-none select-none overflow-hidden font-sans relative">
@@ -178,15 +181,16 @@ export default function Ludo({
             isProcessing={isProcessing}
             myColor={myColor}
           />
-          {activeLudo.winner && (() => {
-            const myScore = myColor === 'red' ? (activeLudo.scores?.red ?? 0) : (activeLudo.scores?.yellow ?? 0);
-            const opponentScore = myColor === 'red' ? (activeLudo.scores?.yellow ?? 0) : (activeLudo.scores?.red ?? 0);
+          {game.winner && (() => {
+            const myScore = myColor === 'red' ? (game.scores?.red ?? 0) : (game.scores?.yellow ?? 0);
+            const opponentScore = myColor === 'red' ? (game.scores?.yellow ?? 0) : (game.scores?.red ?? 0);
             const totalScore = myScore + opponentScore;
             const myPercentage = totalScore === 0 ? 50 : Math.round((myScore / totalScore) * 100);
             const opponentPercentage = 100 - myPercentage;
 
-            const isVictory = activeLudo.winner === myColor;
-            const isDraw = activeLudo.winner === 'draw';
+            const winner = game.winner;
+            const isDraw = winner === 'draw';
+            const isVictory = winner !== null && winner !== 'draw' && winner === myColor;
 
             return (
               <div className={`absolute inset-x-2 inset-y-1 backdrop-blur-md z-50 text-center flex flex-col justify-between overflow-hidden rounded-[28px] p-5 shadow-[0_24px_50px_rgba(0,0,0,0.95)] border border-white/5 animate-fade-in animate-duration-300 ${

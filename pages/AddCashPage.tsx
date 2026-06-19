@@ -66,7 +66,7 @@ export default function AddCashPage() {
         },
         body: JSON.stringify({
           amount: depAmt,
-          method: paymentMethod === 'upi' ? "UPI Gateway" : paymentMethod === 'card' ? "Credit/Debit Card" : "Net Banking"
+          method: paymentMethod === 'card' ? "Credit/Debit Card" : "Net Banking"
         })
       });
 

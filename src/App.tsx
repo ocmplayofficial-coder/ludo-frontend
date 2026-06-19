@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { initializeAudio } from '../audio/AudioManager';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import {
+import type {
   User,
   Transaction,
   LudoGame,
   TeenPattiGame
-} from './types.js';
+} from './types';
 import useGameSocket from '../game/useGameSocket.js';
+import useTPSocket from '../game/useTPSocket.js';
 import axiosInstance from './axiosConfig';
 import { API_URL } from './config';
 import {
@@ -34,6 +35,9 @@ import TeenPatti from '../pages/TeenPatti/TeenPatti.tsx';
 import AddCashPage from '../pages/AddCashPage.tsx';
 import DepositPaymentPage from '../pages/DepositPaymentPage.tsx';
 import AdminDashboardPage from '../pages/AdminDashboardPage.tsx';
+import WithdrawPage from '../pages/WithdrawPage.tsx';
+import WithdrawHistoryPage from '../pages/WithdrawHistoryPage.tsx';
+import { getSocket } from '../game/socketInstance.js';
 
 const formatLudoTime = (seconds: number) => {
   const m = Math.floor(seconds / 60);
@@ -81,7 +85,7 @@ export default function App() {
       } else {
         setWalletError("Failed to fetch wallet balance from API");
       }
-    } catch (e) {
+    } catch (e: any) {
       setWalletError("Wallet API unreachable");
     } finally {
       setWalletLoading(false);
@@ -105,7 +109,7 @@ export default function App() {
   const [selectedTxnType, setSelectedTxnType] = useState("ALL");
 
   // Game UI/Flow routers
-  const [gameRoute, setGameRoute] = useState<'LOBBY_CAROUSEL' | 'LUDO_ARENA' | 'LUDO_MATCH' | 'LUDO_MATCHMAKING' | 'L_PLAYING' | 'TP_ARENA' | 'TP_PLAYING'>('LOBBY_CAROUSEL');
+  const [gameRoute, setGameRoute] = useState<'LOBBY_CAROUSEL' | 'LUDO_ARENA' | 'LUDO_MATCH' | 'LUDO_MATCHMAKING' | 'L_PLAYING' | 'TP_ARENA' | 'TP_MATCHMAKING' | 'TP_PLAYING'>('LOBBY_CAROUSEL');
   const [selectedLudoVariant, setSelectedLudoVariant] = useState<'CLASSIC' | 'TIME' | 'TURN'>('CLASSIC');
   const [selectedTPVariant, setSelectedTPVariant] = useState<'CLASSIC' | 'MUFLIS' | 'AK47'>('CLASSIC');
 
@@ -116,6 +120,25 @@ export default function App() {
 
   // WebSocket Integration Hook
   const socket = useGameSocket(activeLudo?.matchId);
+  const tpSocket = useTPSocket(activeTP?.matchId);
+
+  useEffect(() => {
+    if (tpSocket.game) {
+      // assign server-sent game snapshot directly to state to satisfy TS types
+      const g = tpSocket.game as TeenPattiGame;
+      setActiveTP(g);
+      const isPlaying = g.status === 'PLAYING';
+      const hasBothPlayers = !!(g.players?.A && g.players?.B);
+      if (isPlaying && hasBothPlayers) {
+        setMatchmakingOpponentFound(true);
+        setMatchmakingPlayersCount(2);
+      } else if (g.status === 'PLAYING_PENDING' && hasBothPlayers) {
+        setMatchmakingOpponentFound(true);
+        setMatchmakingPlayersCount(2);
+      }
+    }
+  }, [tpSocket.game]);
+
 
   // Initialize Web Audio API on first user interaction
   useEffect(() => {
@@ -134,7 +157,7 @@ export default function App() {
 
   useEffect(() => {
     if (socket.game) {
-      setActiveLudo(prev => ({ ...(prev || {}), ...(socket.game || {}) }));
+      setActiveLudo(socket.game as LudoGame);
     }
   }, [socket.game]);
   useEffect(() => {
@@ -252,11 +275,19 @@ export default function App() {
   const prevRedLivesRef = React.useRef(3);
   const prevYellowLivesRef = React.useRef(3);
 
+  const tpOpponentName = (() => {
+    if (!activeTP || !activeTP.players) return "Searching...";
+    const myId = userProfile?._id ? (userProfile._id.toString ? userProfile._id.toString() : userProfile._id) : (userProfile?.id ? userProfile.id.toString() : "");
+    const isA = activeTP.players.A?.userId === myId;
+    return isA ? (activeTP.players.B?.username || "Searching...") : (activeTP.players.A?.username || "Searching...");
+  })();
+
   // Trigger temporary floating messages
   const showAlert = (text: string, type: 'success' | 'error' = 'success') => {
     setAlertMsg({ type, text });
     setTimeout(() => setAlertMsg(null), 3500);
   };
+  (window as any).showAlert = showAlert;
 
   // ====== INITIAL BOOT & RE-SYNC ======
   const syncServerProfile = async () => {
@@ -266,7 +297,7 @@ export default function App() {
         const u = await res.json();
         setUserProfile(prev => ({ ...(prev || {}), ...u }));
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed profiling:", e);
     }
   };
@@ -278,10 +309,27 @@ export default function App() {
         const txs = await res.json();
         setTransactions(txs);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed transaction loading:", e);
     }
   };
+
+  useEffect(() => {
+    if (activeTP && gameRoute === 'TP_MATCHMAKING') {
+      const isMatched = activeTP.status === 'PLAYING' || activeTP.status === 'PLAYING_PENDING';
+      if (isMatched && activeTP.players?.A && activeTP.players?.B) {
+        if (matchIntervalRef) {
+          clearInterval(matchIntervalRef);
+          setMatchIntervalRef(null);
+        }
+        setGameRoute('TP_PLAYING');
+        syncServerProfile();
+        syncWallet();
+        syncTransactions();
+        showAlert("Stakes table matched! High rollers verified.");
+      }
+    }
+  }, [activeTP, gameRoute, matchIntervalRef]);
 
   useEffect(() => {
     if (authState === 'MAIN') {
@@ -289,6 +337,35 @@ export default function App() {
       syncTransactions();
     }
   }, [authState, currentTab]);
+
+  // Real-time socket updates for withdrawals and wallet updates
+  useEffect(() => {
+    if (authState !== 'MAIN') return;
+    const socket = getSocket();
+    if (socket) {
+      const handleWalletUpdated = (data: any) => {
+        console.log("💰 Socket walletUpdated:", data);
+        syncServerProfile();
+        syncWallet();
+      };
+
+      const handleWithdrawNotification = (data: any) => {
+        console.log("🔔 Socket withdrawNotification:", data);
+        showAlert(data.message, data.type === 'APPROVED' ? 'success' : 'error');
+        syncServerProfile();
+        syncWallet();
+        syncTransactions();
+      };
+
+      socket.on("walletUpdated", handleWalletUpdated);
+      socket.on("withdrawNotification", handleWithdrawNotification);
+
+      return () => {
+        socket.off("walletUpdated", handleWalletUpdated);
+        socket.off("withdrawNotification", handleWithdrawNotification);
+      };
+    }
+  }, [authState]);
 
   useEffect(() => {
     // Splash screen holding
@@ -330,7 +407,7 @@ export default function App() {
         } else {
           console.warn('Failed to fetch admin dashboard stats');
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error('Error fetching admin dashboard stats', e);
       }
     };
@@ -372,7 +449,7 @@ export default function App() {
         setOtpTimer(30);
         showAlert("Dynamic OTP credentials sent to " + phoneNumber);
       }
-    } catch (err) {
+    } catch (err: any) {
       showAlert("Server communication error.", "error");
     } finally {
       setIsProcessing(false);
@@ -415,8 +492,8 @@ export default function App() {
             const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
             console.log('JWT TOKEN USER', payload);
           }
-        } catch (e) {
-          console.error('Failed decoding JWT on client', e.message);
+        } catch (e: any) {
+          console.error('Failed decoding JWT on client', e?.message || e);
         }
         setUserProfile(prev => ({ ...(prev || {}), ...data.user }));
         setAuthState('MAIN');
@@ -426,7 +503,7 @@ export default function App() {
       } else {
         showAlert(data.error || "Wrong Verification code. Enter any 4 digits.", "error");
       }
-    } catch (err) {
+    } catch (err: any) {
       showAlert("Verification offline.", "error");
     } finally {
       setIsProcessing(false);
@@ -447,7 +524,7 @@ export default function App() {
       localStorage.removeItem('token');
       sessionStorage.removeItem('token');
       showAlert("Logged out successfully.");
-    } catch (err) {
+    } catch (err: any) {
       showAlert("Failed logging out.", "error");
     } finally {
       setIsProcessing(false);
@@ -473,7 +550,7 @@ export default function App() {
       } else {
         showAlert(data.error || "Deposit failed", "error");
       }
-    } catch (e) {
+    } catch (e: any) {
       showAlert("Deposit gateway unreachable.", "error");
     } finally {
       setIsProcessing(false);
@@ -503,7 +580,7 @@ export default function App() {
       } else {
         showAlert(data.error || "Withdrawal failed", "error");
       }
-    } catch (e) {
+    } catch (e: any) {
       showAlert("Withdrawal server offline.", "error");
     } finally {
       setIsProcessing(false);
@@ -529,7 +606,7 @@ export default function App() {
       } else {
         showAlert(data.error || "Conversion failed.", "error");
       }
-    } catch (e) {
+    } catch (e: any) {
       showAlert("Conversion interface error.", "error");
     } finally {
       setIsProcessing(false);
@@ -551,7 +628,7 @@ export default function App() {
       } else {
         showAlert(data.error || "Admin transaction update failed.", "error");
       }
-    } catch (err) {
+    } catch (err: any) {
       showAlert("Internal action trigger failed.", "error");
     }
   };
@@ -584,8 +661,8 @@ export default function App() {
           console.log('MATCHMAKING USER', payload.id || payload);
         }
       }
-    } catch (e) {
-      console.error('Failed decoding token for matchmaking log', e.message);
+    } catch (e: any) {
+      console.error('Failed decoding token for matchmaking log', e?.message || e);
     }
 
     const apiPromise = axiosInstance.post('/api/ludo/matchmaking', { variant: selectedLudoVariant, entryFee: fee })
@@ -627,7 +704,7 @@ export default function App() {
             osc.start();
             osc.stop(audioCtx.currentTime + 0.5);
           }
-        } catch (e) { }
+        } catch (e: any) { }
       }
 
       if (secsPassed === 5) {
@@ -636,7 +713,7 @@ export default function App() {
         setMatchmakingProgress(100);
 
         if (pendingGame) {
-          setActiveLudo(prev => ({ ...(prev || {}), ...(pendingGame || {}) }));
+          setActiveLudo(pendingGame as LudoGame);
           setGameRoute('L_PLAYING');
           syncServerProfile();
           syncTransactions();
@@ -644,7 +721,7 @@ export default function App() {
         } else {
           apiPromise.then(() => {
             if (pendingGame) {
-              setActiveLudo(prev => ({ ...(prev || {}), ...(pendingGame || {}) }));
+              setActiveLudo(pendingGame as LudoGame);
               setGameRoute('L_PLAYING');
               syncServerProfile();
               syncTransactions();
@@ -745,13 +822,13 @@ export default function App() {
     if (!activeLudo || activeLudo.status !== 'PLAYING') return;
     try {
       const res = await authFetch(`/api/ludo/${activeLudo.matchId}/end-time-mode`, { method: "POST" });
-      if (res.ok) {
+        if (res.ok) {
         const game = await res.json();
-        setActiveLudo(prev => ({ ...(prev || {}), ...(game || {}) }));
+        setActiveLudo(game as LudoGame);
         showAlert("⏰ Time is finished! Tallying points...", "success");
         syncServerProfile();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Time mode conclusion sync fails:", err);
     }
   };
@@ -791,134 +868,119 @@ export default function App() {
   }, [gameRoute, activeLudo?.matchId, activeLudo?.status, activeLudo?.turn, activeLudo?.turnTimerRemaining]);
 
   // ====== TEEN PATTI WORKFLOW ======
-  const startTPMatchmaking = async (minBet: number) => {
-    if (userProfile && userProfile.walletBalance < minBet * 4) {
-      showAlert("Requires at least ₹" + (minBet * 4) + " cash on your balance to join this table.", "error");
+  const startTPMatchmaking = async (entryFee: number, variant: string) => {
+    if (userProfile && userProfile.walletBalance < entryFee) {
+      showAlert("Insufficient balance to join this table.", "error");
       return;
     }
 
-    setGameRoute('LUDO_MATCHMAKING');
-    setMatchmakingProgress(15);
+    setMatchmakingEntryFee(entryFee);
+    setMatchmakingPlayersCount(1);
+    setMatchmakingOpponentFound(false);
+    setGameRoute('TP_MATCHMAKING');
+    setMatchmakingCountdown(75);
 
-    const matchInterval = setInterval(() => {
-      setMatchmakingProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(matchInterval);
-          return 100;
+    let secsPassed = 0;
+    let pendingGame: any = null;
+
+    const apiPromise = authFetch('/api/teenpatti/join', {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ variant, minBet: entryFee })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.success) {
+          pendingGame = data.game;
         }
-        return prev + Math.floor(15 + Math.random() * 20);
+      }).catch(err => {
+        console.error("Match API exception", err);
       });
-    }, 350);
 
-    try {
-      const res = await authFetch("/api/teenpatti/matchmaking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ variant: selectedTPVariant, minBet })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTimeout(() => {
-          clearInterval(matchInterval);
-          setMatchmakingProgress(100);
-          setActiveTP(data.game);
-          setGameRoute('TP_PLAYING');
-          syncServerProfile();
-          syncTransactions();
-          showAlert("Stakes table matched! High rollers verified.");
-        }, 2200);
-      } else {
-        clearInterval(matchInterval);
-        setGameRoute('TP_ARENA');
-        showAlert(data.error || "Stakes room error.", "error");
-      }
-    } catch (e) {
-      clearInterval(matchInterval);
-      setGameRoute('TP_ARENA');
-      showAlert("High stakes matching offline.", "error");
+    if (matchIntervalRef) {
+      clearInterval(matchIntervalRef);
     }
+
+    const intervalId = setInterval(() => {
+      secsPassed += 1;
+      setMatchmakingCountdown(prev => (prev > 0 ? prev - 1 : 0));
+
+      const currentMatch = pendingGame || activeTP;
+      const isRealMatchFound = currentMatch && (currentMatch.status === 'PLAYING' || currentMatch.status === 'PLAYING_PENDING');
+
+      if (isRealMatchFound) {
+        setMatchmakingPlayersCount(2);
+        setMatchmakingOpponentFound(true);
+      }
+
+      if (secsPassed === 5) {
+        const handleTransition = (game: any) => {
+          setActiveTP(game);
+          const isMatched = game.status === 'PLAYING' || game.status === 'PLAYING_PENDING';
+          if (isMatched && game.players?.A && game.players?.B) {
+            clearInterval(intervalId);
+            setMatchIntervalRef(null);
+            setMatchmakingPlayersCount(2);
+            setMatchmakingOpponentFound(true);
+            setGameRoute('TP_PLAYING');
+            syncServerProfile();
+            syncWallet();
+            syncTransactions();
+            showAlert("Stakes table matched! High rollers verified.");
+          } else {
+            // Stay in TP_MATCHMAKING, but activeTP is set to trigger socket JOIN_GAME
+            setMatchmakingPlayersCount(1);
+            setMatchmakingOpponentFound(false);
+            showAlert("Searching for opponent...");
+          }
+        };
+
+        if (pendingGame) {
+          handleTransition(pendingGame);
+        } else {
+          apiPromise.then(() => {
+            if (pendingGame) {
+              handleTransition(pendingGame);
+            } else {
+              clearInterval(intervalId);
+              setMatchIntervalRef(null);
+              setGameRoute('TP_ARENA');
+              showAlert("Matchmaking timeout. Please try again.", "error");
+            }
+          });
+        }
+      }
+
+      if (secsPassed >= 75) {
+        clearInterval(intervalId);
+        setMatchIntervalRef(null);
+        setGameRoute('TP_ARENA');
+        showAlert("No opponents found. Entry fee refunded.", "error");
+        authFetch('/api/teenpatti/cancel-matchmaking', { method: 'POST' }).then(() => {
+          syncServerProfile();
+          syncWallet();
+          syncTransactions();
+        }).catch(err => console.error(err));
+      }
+    }, 1000);
+
+    setMatchIntervalRef(intervalId);
   };
 
   const triggerTPAction_Fold = async () => {
-    if (!activeTP || isProcessing) return;
-    setIsProcessing(true);
-    try {
-      const res = await authFetch(`/api/teenpatti/${activeTP.matchId}/fold`, { method: "POST" });
-      if (res.ok) {
-        const game = await res.json();
-        setActiveTP(game);
-        syncServerProfile();
-        syncTransactions();
-      }
-    } catch (err) {
-      showAlert("Action match lost.", "error");
-    } finally {
-      setIsProcessing(false);
-    }
+    tpSocket.pack();
   };
 
   const triggerTPAction_Seen = async () => {
-    if (!activeTP || isProcessing) return;
-    setIsProcessing(true);
-    try {
-      const res = await authFetch(`/api/teenpatti/${activeTP.matchId}/seen`, { method: "POST" });
-      if (res.ok) {
-        const game = await res.json();
-        setActiveTP(game);
-      }
-    } catch (err) {
-      showAlert("Action match lost.", "error");
-    } finally {
-      setIsProcessing(false);
-    }
+    tpSocket.seeCards();
   };
 
   const triggerTPAction_Chaal = async () => {
-    if (!activeTP || isProcessing) return;
-    const betNeeded = activeTP.playerSeen ? activeTP.currentBet * 2 : activeTP.currentBet;
-    if (userProfile && userProfile.walletBalance < betNeeded) {
-      showAlert("Insufficient wallet cash balance to match this Chaal bet size.", "error");
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      const res = await authFetch(`/api/teenpatti/${activeTP.matchId}/chaal`, { method: "POST" });
-      if (res.ok) {
-        const game = await res.json();
-        setActiveTP(game);
-        syncServerProfile();
-        syncTransactions();
-      }
-    } catch (err) {
-      showAlert("Action bet lost.", "error");
-    } finally {
-      setIsProcessing(false);
-    }
+    tpSocket.placeBet();
   };
 
   const triggerTPAction_Show = async () => {
-    if (!activeTP || isProcessing) return;
-    const betNeeded = activeTP.playerSeen ? activeTP.currentBet * 2 : activeTP.currentBet;
-    if (userProfile && userProfile.walletBalance < betNeeded) {
-      showAlert("Insufficient cash to request Showdown card opening.", "error");
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      const res = await authFetch(`/api/teenpatti/${activeTP.matchId}/show`, { method: "POST" });
-      if (res.ok) {
-        const game = await res.json();
-        setActiveTP(game);
-        syncServerProfile();
-        syncTransactions();
-      }
-    } catch (err) {
-      showAlert("Action showdown lost.", "error");
-    } finally {
-      setIsProcessing(false);
-    }
+    tpSocket.show();
   };
 
   // Filter transactions inside the wallet lists
@@ -939,6 +1001,8 @@ export default function App() {
     <Routes>
       <Route path="/wallet/add-cash" element={<AddCashPage />} />
       <Route path="/wallet/deposit-payment" element={<DepositPaymentPage />} />
+      <Route path="/wallet/withdraw" element={<WithdrawPage />} />
+      <Route path="/wallet/withdraw-history" element={<WithdrawHistoryPage />} />
       <Route path="/admin" element={<AdminDashboardPage />} />
       <Route path="*" element={
         <div className="min-h-screen bg-[#070102] overflow-x-hidden font-sans antialiased text-neutral-100 flex items-center justify-center p-0 md:p-4">
@@ -1007,15 +1071,16 @@ export default function App() {
                       {currentTab === 'LOBBY' && (
                         <Home
                           userProfile={userProfile}
+                          transactions={transactions}
                           gameRoute={gameRoute}
-                          setGameRoute={setGameRoute}
+                            setGameRoute={setGameRoute}
                           setCurrentTab={setCurrentTab}
                           selectedLudoVariant={selectedLudoVariant}
                           setSelectedLudoVariant={setSelectedLudoVariant}
                           selectedTPVariant={selectedTPVariant}
                           setSelectedTPVariant={setSelectedTPVariant}
-                          onlinePlayersCount={onlinePlayersCount}
-                          liveGamesCount={liveGamesCount}
+                            onlinePlayersCount={onlinePlayersCount ?? 0}
+                            liveGamesCount={liveGamesCount ?? 0}
                           startLudoMatchmaking={startLudoMatchmaking}
                           startTPMatchmaking={startTPMatchmaking}
                           setAddCashAmount={setAddCashAmount}
@@ -1106,23 +1171,38 @@ export default function App() {
                     triggerTPAction_Show={triggerTPAction_Show}
                     syncServerProfile={syncServerProfile}
                     syncTransactions={syncTransactions}
+                    tpSocket={tpSocket}
+                    userProfile={userProfile}
                   />
                 )}
 
                 {/* Multiplayer search matchmaking loader overlay */}
-                {gameRoute === 'LUDO_MATCHMAKING' && (
+                {(gameRoute === 'LUDO_MATCHMAKING' || gameRoute === 'TP_MATCHMAKING') && (
                   <div className="absolute inset-0 bg-gradient-to-b from-[#310404] via-[#1a0101] to-[#120000] text-neutral-100 flex flex-col items-center justify-between p-5 z-50 overflow-hidden select-none">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.15)_0,transparent_65%)] pointer-events-none" />
 
                     {/* Back Link */}
                     <div className="w-full flex justify-start z-10 pt-1 shrink-0">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (matchIntervalRef) {
                             clearInterval(matchIntervalRef);
                             setMatchIntervalRef(null);
                           }
-                          setGameRoute('LUDO_MATCH');
+                          try {
+                            if (gameRoute === 'TP_MATCHMAKING') {
+                              await authFetch('/api/teenpatti/cancel-matchmaking', { method: 'POST' });
+                              setGameRoute('TP_ARENA');
+                            } else {
+                              await authFetch('/api/ludo/matchmaking/cancel', { method: 'POST' });
+                              setGameRoute('LUDO_MATCH');
+                            }
+                          } catch (err: any) {
+                            console.error('Failed to cancel matchmaking on server', err);
+                            setGameRoute(gameRoute === 'TP_MATCHMAKING' ? 'TP_ARENA' : 'LUDO_MATCH');
+                          }
+                          syncServerProfile();
+                          syncTransactions();
                         }}
                         className="text-neutral-400 hover:text-white flex items-center gap-1 text-[11px] font-black tracking-widest uppercase transition-colors cursor-pointer"
                       >
@@ -1170,7 +1250,9 @@ export default function App() {
                               {matchmakingOpponentFound ? "Opponent Joined" : "Searching Player..."}
                             </span>
                             <h4 className="text-xs font-black text-white leading-tight font-sans">
-                              {matchmakingOpponentFound ? "Rohan_Ludo" : "Searching..."}
+                              {gameRoute === 'TP_MATCHMAKING'
+                                ? (matchmakingOpponentFound ? tpOpponentName : "Searching...")
+                                : (matchmakingOpponentFound ? "Rohan_Ludo" : "Searching...")}
                             </h4>
 
                             <div className="flex items-center gap-1 pt-0.5">
@@ -1256,11 +1338,17 @@ export default function App() {
                             setMatchIntervalRef(null);
                           }
                           try {
-                            await authFetch('/api/ludo/matchmaking/cancel', { method: 'POST' });
+                            if (gameRoute === 'TP_MATCHMAKING') {
+                              await authFetch('/api/teenpatti/cancel-matchmaking', { method: 'POST' });
+                              setGameRoute('TP_ARENA');
+                            } else {
+                              await authFetch('/api/ludo/matchmaking/cancel', { method: 'POST' });
+                              setGameRoute('LUDO_MATCH');
+                            }
                           } catch (err) {
                             console.error('Failed to cancel matchmaking on server', err);
+                            setGameRoute(gameRoute === 'TP_MATCHMAKING' ? 'TP_ARENA' : 'LUDO_MATCH');
                           }
-                          setGameRoute('LUDO_MATCH');
                           syncServerProfile();
                           syncTransactions();
                         }}

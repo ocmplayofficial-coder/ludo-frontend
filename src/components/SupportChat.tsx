@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { API_URL } from '../config';
-import { SupportChatMessage } from '../types.js';
+import type { SupportChatMessage } from '../types';
 import { Send, Bot, Headset, ArrowLeft, ShieldAlert } from 'lucide-react';
 
 interface SupportChatProps {
@@ -29,7 +29,7 @@ export default function SupportChat({ onBack }: SupportChatProps) {
       });
       const data = await res.json();
       setMessages(data);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed support sync:", e);
     }
   };
@@ -67,7 +67,7 @@ export default function SupportChat({ onBack }: SupportChatProps) {
         // Give a secondary check timer for the delayed reply
         setTimeout(fetchMessages, 1100);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Support chat error:", err);
     } finally {
       setLoading(false);

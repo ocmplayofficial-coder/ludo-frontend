@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../src/axiosConfig';
 import { Coins, Wallet as WalletIcon, Smartphone, ArrowLeft, Settings } from 'lucide-react';
-import { User } from '../../src/types.js';
+import type { User } from '../../src/types';
 interface HomeProps {
   userProfile: User | null;
   transactions: any[];
-  gameRoute: 'LOBBY_CAROUSEL' | 'LUDO_ARENA' | 'LUDO_MATCH' | 'TP_ARENA' | 'LUDO_MATCHMAKING' | 'L_PLAYING' | 'TP_PLAYING';
+  gameRoute: 'LOBBY_CAROUSEL' | 'LUDO_ARENA' | 'LUDO_MATCH' | 'TP_ARENA' | 'LUDO_MATCHMAKING' | 'L_PLAYING' | 'TP_PLAYING' | 'TP_MATCHMAKING';
   setGameRoute: (val: any) => void;
   setCurrentTab: (val: any) => void;
   selectedLudoVariant: 'CLASSIC' | 'TIME' | 'TURN';
@@ -16,7 +16,7 @@ interface HomeProps {
   onlinePlayersCount: number;
   liveGamesCount: number;
   startLudoMatchmaking: (fee: number) => void;
-  startTPMatchmaking: (fee: number) => void;
+  startTPMatchmaking: (fee: number, variant: string) => void;
   setAddCashAmount: (val: string) => void;
   setAddCashStep: (val: any) => void;
   setUtrNumber: (val: string) => void;
@@ -51,21 +51,25 @@ export default function Home({
   const navigate = useNavigate();
   const profile = (userProfile && (userProfile as any).user) ? (userProfile as any).user : userProfile;
   const [arenas, setArenas] = useState<any[]>([]);
+  const [tpLobbyTab, setTpLobbyTab] = useState<'CLASSIC' | 'MUFLIS' | 'JOKER'>('CLASSIC');
 
   async function loadArenas() {
     try {
-      const res = await api.get("/api/admin/arenas", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("adminToken")}`
-        }
-      });
+      const token = sessionStorage.getItem("token") || localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      // Trigger auto-seeding of Teen Patti arenas if empty
+      await api.get("/api/teenpatti/arenas", { headers });
+
+      // Fetch all arenas (Teen Patti + Ludo)
+      const res = await api.get("/api/admin/arenas", { headers });
 
       console.log("ARENA RESPONSE =", res.data);
 
       if (res.data.success) {
         setArenas(res.data.arenas || []);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("ARENA LOAD ERROR", err);
     }
   }
@@ -103,10 +107,7 @@ export default function Home({
                 + Add Cash
               </button>
               <button
-                onClick={() => {
-                  setWithdrawAmount("300");
-                  setWithdrawModalOpen(true);
-                }}
+                onClick={() => navigate('/wallet/withdraw')}
                 className="px-3.5 py-1.5 rounded-lg bg-neutral-900 border border-rose-955 text-rose-300 hover:bg-neutral-850 font-extrabold text-[10px] uppercase cursor-pointer"
               >
                 Withdraw
@@ -468,102 +469,121 @@ export default function Home({
       )}
 
       {/* 4. TEEN PATTI ARENA */}
-      {gameRoute === 'TP_ARENA' && (
-        <div className="space-y-4 text-left">
+      {gameRoute === 'TP_ARENA' && (() => {
+        const filtered = arenas.filter(a => a.gameType === 'teenpatti' && a.mode === tpLobbyTab);
+        const beginner = filtered.filter(a => a.entryFee <= 100);
+        const pro = filtered.filter(a => a.entryFee > 100 && a.entryFee <= 5000);
+        const vip = filtered.filter(a => a.entryFee > 5000);
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setGameRoute('LOBBY_CAROUSEL')}
-              className="p-1 rounded bg-neutral-900 border border-neutral-800 text-rose-350 cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-            </button>
-
-            <h3 className="text-sm font-extrabold text-amber-400 uppercase tracking-widest leading-none">
-              TEEN PATTI LOBBY
-            </h3>
-          </div>
-
-          <div className="space-y-3.5">
-
-            {arenas
-              .filter(
-                (arena: any) =>
-                  arena.gameType === "teenpatti"
-              )
-              .map((arena: any) => (
-
-                <div
-                  key={arena.id}
-                  className="bg-gradient-to-br from-[#2f0e0e] to-neutral-900 border border-rose-955/40 p-4 rounded-xl space-y-3.5 shadow-md"
-                >
-
-                  <div>
-                    <h4 className="text-xs font-extrabold text-white leading-none uppercase">
-                      {arena.mode}
-                    </h4>
-
-                    <span className="text-[9px] text-zinc-500 mt-1 block">
-                      Teen Patti Arena
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-rose-955/30 pt-3">
-
-                    <div>
-                      <span className="text-[8px] text-zinc-500 block uppercase font-bold">
-                        ENTRY FEE
-                      </span>
-
-                      <span className="text-xs font-bold text-amber-400 block font-mono">
-                        ₹{arena.entryFee}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-[8px] text-zinc-500 block uppercase font-bold">
-                        WINNING
-                      </span>
-
-                      <span className="text-xs font-bold text-emerald-400 block font-mono">
-                        ₹{arena.winningPrize}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => {
-
-                        setSelectedTPVariant(
-                          arena.mode.toUpperCase()
-                        );
-
-                        startTPMatchmaking(
-                          Number(arena.entryFee)
-                        );
-                      }}
-                      className="px-4 py-1.5 bg-[#ffd700] hover:bg-amber-500 text-[#170101] font-extrabold rounded-lg text-[10px] uppercase cursor-pointer transition-colors"
+        const renderArenaSection = (title: string, list: any[]) => {
+          if (list.length === 0) return null;
+          return (
+            <div className="space-y-2.5">
+              <h4 className="text-[10px] font-bold text-amber-500/80 uppercase tracking-widest pl-1">
+                {title}
+              </h4>
+              <div className="space-y-3">
+                {list.map((arena) => {
+                  // Mocks for online counts
+                  const mockOnline = Math.floor(Math.random() * 25) + 6;
+                  const mockTables = Math.floor(Math.random() * 6) + 1;
+                  
+                  return (
+                    <div
+                      key={arena.id}
+                      className="bg-gradient-to-br from-[#2b080b] to-[#0e0202] border border-[#ffd700]/10 hover:border-[#ffd700]/30 p-4 rounded-2xl flex items-center justify-between shadow-xl transition-all duration-300 transform hover:scale-101 relative overflow-hidden"
                     >
-                      PLAY NOW
-                    </button>
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#ffd700]/5 to-transparent pointer-events-none rounded-full" />
+                      
+                      <div className="space-y-1 text-left z-10">
+                        <h4 className="text-xs font-black text-white tracking-wide uppercase leading-none">
+                          {tpLobbyTab} Arena
+                        </h4>
+                        <div className="flex gap-2 items-center pt-0.5">
+                          <span className="text-[8px] text-zinc-500 font-bold">
+                            👤 {mockOnline} Players
+                          </span>
+                          <span className="text-[8px] text-zinc-500 font-bold border-l border-zinc-800 pl-2">
+                            🃏 {mockTables} Tables
+                          </span>
+                        </div>
+                        <div className="flex gap-2.5 pt-1.5 leading-none">
+                          <div>
+                            <span className="text-[7.5px] text-zinc-500 font-bold block uppercase">ENTRY</span>
+                            <span className="text-xs font-black text-amber-400 font-mono">₹{arena.entryFee}</span>
+                          </div>
+                          <div className="border-l border-neutral-800 pl-3">
+                            <span className="text-[7.5px] text-zinc-500 font-bold block uppercase">PRIZE</span>
+                            <span className="text-xs font-black text-emerald-400 font-mono">₹{arena.winningPrize}</span>
+                          </div>
+                        </div>
+                      </div>
 
-                  </div>
+                      <button
+                        onClick={() => {
+                          setSelectedTPVariant(tpLobbyTab);
+                          startTPMatchmaking(Number(arena.entryFee), tpLobbyTab);
+                        }}
+                        className="px-4.5 py-2 bg-gradient-to-r from-amber-400 to-[#ffd700] hover:from-[#ffd700] hover:to-amber-500 text-[#140101] font-black rounded-xl text-[10px] uppercase cursor-pointer transition-all shadow-[0_4px_12px_rgba(251,191,36,0.2)] hover:shadow-none hover:translate-y-0.5 z-10"
+                      >
+                        PLAY NOW
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        };
 
-                </div>
+        return (
+          <div className="space-y-4 text-left pb-6">
+            {/* Header */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setGameRoute('LOBBY_CAROUSEL')}
+                className="p-1 rounded bg-neutral-900 border border-neutral-850 text-rose-300 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+              <h3 className="text-xs font-extrabold text-[#ffd700] uppercase tracking-widest leading-none">
+                TEEN PATTI LOBBY
+              </h3>
+            </div>
 
+            {/* Variant Selector Tabs */}
+            <div className="grid grid-cols-3 gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-850">
+              {(['CLASSIC', 'MUFLIS', 'JOKER'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setTpLobbyTab(mode)}
+                  className={`py-2 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    tpLobbyTab === mode
+                      ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-neutral-950 shadow-md'
+                      : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  {mode}
+                </button>
               ))}
+            </div>
 
-            {arenas.filter(
-              (arena: any) =>
-                arena.gameType === "teenpatti"
-            ).length === 0 && (
-                <div className="text-center text-zinc-500 py-10">
-                  No Teen Patti Arenas Available
+            {/* Arenas Categories list */}
+            <div className="space-y-5">
+              {renderArenaSection("Beginner Arena", beginner)}
+              {renderArenaSection("Pro Arena", pro)}
+              {renderArenaSection("VIP Arena", vip)}
+
+              {filtered.length === 0 && (
+                <div className="text-center text-zinc-600 py-10 text-xs font-bold uppercase tracking-wider">
+                  No tables matching this variant.
                 </div>
               )}
-
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

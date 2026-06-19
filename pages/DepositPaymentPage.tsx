@@ -59,6 +59,10 @@ export default function DepositPaymentPage() {
         if (rawQr) {
           qrImageUrl = rawQr.startsWith('http') ? encodeURI(rawQr) : `${API_URL}${encodeURI(rawQr)}`;
           setQrCodeUrl(qrImageUrl);
+        } else {
+          // Do not generate fallback QR. Require admin-uploaded QR image.
+          setQrCodeUrl('');
+          setError('No uploaded QR image configured for this payment method');
         }
 
         // Debugging info

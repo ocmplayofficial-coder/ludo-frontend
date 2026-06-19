@@ -70,14 +70,20 @@ export interface LudoGame {
   entryFee: number;
   winningPrize: number;
   players: {
-    red: { userId: string; username: string; avatar: string };
+    red: { userId: string; username: string; avatar: string } | null;
     yellow: { userId: string; username: string; avatar: string } | null;
   };
   turn: TokenColor;
   diceRoll: number | null;
   diceHasRolled: boolean;
   tokens: LudoToken[];
-  winner: TokenColor | null;
+  // Winner can be a color, the explicit 'draw' marker, or null when ongoing
+  winner: TokenColor | 'draw' | null;
+  // Optional per-color scores (may appear on finish screens)
+  scores?: { red?: number; yellow?: number } | null;
+  // Optional helper flags used by server/UI
+  waitingForPlayers?: boolean;
+  bothPlayersJoined?: boolean;
   movesRemaining: number; // For Turn-based
   timerRemaining: number; // For Time-based
   redLives: number;      // 3 lives/hearts
@@ -94,21 +100,33 @@ export interface Card {
   rank: number; // 2-14
 }
 
+export interface TeenPattiPlayer {
+  userId: string;
+  username: string;
+  avatar: string;
+  walletBalance: number;
+  cards: Card[];
+  seen: boolean;
+  folded: boolean;
+  lastBet: number;
+}
+
 export interface TeenPattiGame {
   matchId: string;
-  variant: TeenPattiVariant;
-  minBet: number;
+  variant: string;
+  entryFee: number;
+  jokerValue?: string | null;
   pot: number;
   currentBet: number;
-  playerHand: Card[];
-  botHand: Card[];
-  playerSeen: boolean;
-  botSeen: boolean;
-  playerFolded: boolean;
-  botFolded: boolean;
-  turn: 'player' | 'bot';
-  winner: 'player' | 'bot' | null;
-  status: 'MATCHMAKING' | 'PLAYING' | 'SHOWDOWN' | 'FINISHED';
+  players: {
+    A: TeenPattiPlayer;
+    B?: TeenPattiPlayer;
+  };
+  turn: string; // userId of current turn
+  turnTimerRemaining: number;
+  winner: 'A' | 'B' | null;
+  status: 'MATCHMAKING' | 'PLAYING_PENDING' | 'PLAYING' | 'FINISHED';
+  waitingForPlayers?: boolean;
   logs: string[];
 }
 

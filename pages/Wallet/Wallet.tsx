@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CreditCard, RotateCcw, Wallet as WalletIcon } from 'lucide-react';
-import { User, Transaction } from '../../src/types.js';
+import type { User, Transaction } from '../../src/types';
 
 interface WalletProps {
   walletData: {
@@ -107,11 +107,9 @@ export default function Wallet({
       <div className="grid grid-cols-2 gap-3.5">
         <button
           onClick={() => {
-            setWithdrawAmount("300");
-            setWithdrawModalOpen(true);
+            navigate('/wallet/withdraw');
           }}
-          disabled={winningCash <= 0}
-          className="py-3 bg-[#1d080a] hover:bg-rose-955/20 border border-rose-500/20 text-rose-300 font-black rounded-xl text-xs uppercase tracking-widest active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
+          className="py-3 bg-[#1d080a] hover:bg-rose-955/20 border border-rose-500/20 text-rose-300 font-black rounded-xl text-xs uppercase tracking-widest active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5"
         >
           <CreditCard className="w-3.5 h-3.5" />
           WITHDRAW

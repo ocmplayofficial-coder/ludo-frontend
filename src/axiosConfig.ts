@@ -10,10 +10,11 @@ axiosInstance.interceptors.request.use((config) => {
   try {
     const token = sessionStorage.getItem('token');
     if (token) {
-      config.headers = config.headers || {};
-      config.headers['Authorization'] = `Bearer ${token}`;
+      const headers = (config.headers as Record<string, string>) || {};
+      headers['Authorization'] = `Bearer ${token}`;
+      (config.headers as Record<string, string>) = headers;
     }
-  } catch (e) {
+  } catch (e: any) {
     // ignore
   }
   return config;

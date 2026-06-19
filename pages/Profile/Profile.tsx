@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Trophy, Star, Users, Copy, Share2 } from 'lucide-react';
-import { User } from '../../src/types.js';
+import type { User } from '../../src/types';
 
 interface ProfileProps {
   userProfile: User | null;
@@ -37,7 +37,7 @@ export default function Profile({
         setUserProfile(data.user);
         showAlert("Nickname updated successfully!");
       }
-    } catch (e) {
+    } catch (e: any) {
       showAlert("Profile update failed.", "error");
     } finally {
       setIsUpdating(false);
